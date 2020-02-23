@@ -1,10 +1,33 @@
 package dbr
 
-import (
-	"reflect"
-)
+import "reflect"
 
-func buildCond(d Dialect, buf Buffer, pred string, cond ...Builder) error {
+type AndMap map[string]interface{}
+
+func (and AndMap) Build(d Dialect, buf Buffer) error {
+	var cond []Condition
+	for col, val := range and {
+		cond = append(cond, Eq(col, val))
+	}
+	return And(cond...).Build(d, buf)
+}
+
+type OrMap map[string]interface{}
+
+func (or OrMap) Build(d Dialect, buf Buffer) error {
+	var cond []Condition
+	for col, val := range or {
+		cond = append(cond, Eq(col, val))
+	}
+	return Or(cond...).Build(d, buf)
+}
+
+// Condition abstracts AND, OR and simple conditions like eq.
+type Condition interface {
+	Builder
+}
+
+func buildCond(d Dialect, buf Buffer, pred string, cond ...Condition) error {
 	for i, c := range cond {
 		if i > 0 {
 			buf.WriteString(" ")
@@ -21,15 +44,15 @@ func buildCond(d Dialect, buf Buffer, pred string, cond ...Builder) error {
 	return nil
 }
 
-// And creates AND from a list of conditions.
-func And(cond ...Builder) Builder {
+// And creates AND from a list of conditions
+func And(cond ...Condition) Condition {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		return buildCond(d, buf, "AND", cond...)
 	})
 }
 
-// Or creates OR from a list of conditions.
-func Or(cond ...Builder) Builder {
+// Or creates OR from a list of conditions
+func Or(cond ...Condition) Condition {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		return buildCond(d, buf, "OR", cond...)
 	})
@@ -40,7 +63,7 @@ func buildCmp(d Dialect, buf Buffer, pred string, column string, value interface
 	buf.WriteString(" ")
 	buf.WriteString(pred)
 	buf.WriteString(" ")
-	buf.WriteString(placeholder)
+	buf.WriteString(d.Placeholder())
 
 	buf.WriteValue(value)
 	return nil
@@ -50,7 +73,7 @@ func buildCmp(d Dialect, buf Buffer, pred string, column string, value interface
 // When value is nil, it will be translated to `IS NULL`.
 // When value is a slice, it will be translated to `IN`.
 // Otherwise it will be translated to `=`.
-func Eq(column string, value interface{}) Builder {
+func Eq(column string, value interface{}) Condition {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		if value == nil {
 			buf.WriteString(d.QuoteIdent(column))
@@ -73,7 +96,7 @@ func Eq(column string, value interface{}) Builder {
 // When value is nil, it will be translated to `IS NOT NULL`.
 // When value is a slice, it will be translated to `NOT IN`.
 // Otherwise it will be translated to `!=`.
-func Neq(column string, value interface{}) Builder {
+func Neq(column string, value interface{}) Condition {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		if value == nil {
 			buf.WriteString(d.QuoteIdent(column))
@@ -93,58 +116,29 @@ func Neq(column string, value interface{}) Builder {
 }
 
 // Gt is `>`.
-func Gt(column string, value interface{}) Builder {
+func Gt(column string, value interface{}) Condition {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		return buildCmp(d, buf, ">", column, value)
 	})
 }
 
 // Gte is '>='.
-func Gte(column string, value interface{}) Builder {
+func Gte(column string, value interface{}) Condition {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		return buildCmp(d, buf, ">=", column, value)
 	})
 }
 
 // Lt is '<'.
-func Lt(column string, value interface{}) Builder {
+func Lt(column string, value interface{}) Condition {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		return buildCmp(d, buf, "<", column, value)
 	})
 }
 
 // Lte is `<=`.
-func Lte(column string, value interface{}) Builder {
+func Lte(column string, value interface{}) Condition {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		return buildCmp(d, buf, "<=", column, value)
-	})
-}
-
-func buildLike(d Dialect, buf Buffer, column, pattern string, isNot bool, escape []string) error {
-	buf.WriteString(d.QuoteIdent(column))
-	if isNot {
-		buf.WriteString(" NOT LIKE ")
-	} else {
-		buf.WriteString(" LIKE ")
-	}
-	buf.WriteString(d.EncodeString(pattern))
-	if len(escape) > 0 {
-		buf.WriteString(" ESCAPE ")
-		buf.WriteString(d.EncodeString(escape[0]))
-	}
-	return nil
-}
-
-// Like is `LIKE`, with an optional `ESCAPE` clause
-func Like(column, value string, escape ...string) Builder {
-	return BuildFunc(func(d Dialect, buf Buffer) error {
-		return buildLike(d, buf, column, value, false, escape)
-	})
-}
-
-// NotLike is `NOT LIKE`, with an optional `ESCAPE` clause
-func NotLike(column, value string, escape ...string) Builder {
-	return BuildFunc(func(d Dialect, buf Buffer) error {
-		return buildLike(d, buf, column, value, true, escape)
 	})
 }

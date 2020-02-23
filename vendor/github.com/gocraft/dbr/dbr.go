@@ -1,17 +1,15 @@
-// Package dbr provides additions to Go's database/sql for super fast performance and convenience.
 package dbr
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"time"
 
-	"github.com/gocraft/dbr/v2/dialect"
+	"github.com/gocraft/dbr/dialect"
 )
 
-// Open creates a Connection.
-// log can be nil to ignore logging.
+// Open instantiates a Connection for a given database/sql connection
+// and event receiver
 func Open(driver, dsn string, log EventReceiver) (*Connection, error) {
 	if log == nil {
 		log = nullReceiver
@@ -24,50 +22,29 @@ func Open(driver, dsn string, log EventReceiver) (*Connection, error) {
 	switch driver {
 	case "mysql":
 		d = dialect.MySQL
-	case "postgres", "pgx":
+	case "postgres":
 		d = dialect.PostgreSQL
-	case "sqlite3":
-		d = dialect.SQLite3
 	default:
 		return nil, ErrNotSupported
 	}
 	return &Connection{DB: conn, EventReceiver: log, Dialect: d}, nil
 }
 
-const (
-	placeholder = "?"
-)
-
-// Connection wraps sql.DB with an EventReceiver
-// to send events, errors, and timings.
+// Connection is a connection to the database with an EventReceiver
+// to send events, errors, and timings to
 type Connection struct {
 	*sql.DB
-	Dialect
+	Dialect Dialect
 	EventReceiver
 }
 
-// Session represents a business unit of execution.
-//
-// All queries in gocraft/dbr are made in the context of a session.
-// This is because when instrumenting your app, it's important
-// to understand which business action the query took place in.
-//
-// A custom EventReceiver can be set.
-//
-// Timeout specifies max duration for an operation like Select.
+// Session represents a business unit of execution for some connection
 type Session struct {
 	*Connection
 	EventReceiver
-	Timeout time.Duration
 }
 
-// GetTimeout returns current timeout enforced in session.
-func (sess *Session) GetTimeout() time.Duration {
-	return sess.Timeout
-}
-
-// NewSession instantiates a Session from Connection.
-// If log is nil, Connection EventReceiver is used.
+// NewSession instantiates a Session for the Connection
 func (conn *Connection) NewSession(log EventReceiver) *Session {
 	if log == nil {
 		log = conn.EventReceiver // Use parent instrumentation
@@ -82,7 +59,6 @@ var (
 )
 
 // SessionRunner can do anything that a Session can except start a transaction.
-// Both Session and Tx implements this interface.
 type SessionRunner interface {
 	Select(column ...string) *SelectBuilder
 	SelectBySql(query string, value ...interface{}) *SelectBuilder
@@ -98,26 +74,17 @@ type SessionRunner interface {
 }
 
 type runner interface {
-	GetTimeout() time.Duration
-	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
 }
 
-func exec(ctx context.Context, runner runner, log EventReceiver, builder Builder, d Dialect) (sql.Result, error) {
-	timeout := runner.GetTimeout()
-	if timeout > 0 {
-		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
+type builder interface {
+	ToSql() (string, []interface{})
+}
 
-	i := interpolator{
-		Buffer:       NewBuffer(),
-		Dialect:      d,
-		IgnoreBinary: true,
-	}
-	err := i.encodePlaceholder(builder, true)
-	query, value := i.String(), i.Value()
+func exec(runner runner, log EventReceiver, builder builder, d Dialect) (sql.Result, error) {
+	query, value := builder.ToSql()
+	query, err := InterpolateForDialect(query, value, d)
 	if err != nil {
 		return nil, log.EventErrKv("dbr.exec.interpolate", err, kvs{
 			"sql":  query,
@@ -132,17 +99,8 @@ func exec(ctx context.Context, runner runner, log EventReceiver, builder Builder
 		})
 	}()
 
-	traceImpl, hasTracingImpl := log.(TracingEventReceiver)
-	if hasTracingImpl {
-		ctx = traceImpl.SpanStart(ctx, "dbr.exec", query)
-		defer traceImpl.SpanFinish(ctx)
-	}
-
-	result, err := runner.ExecContext(ctx, query, value...)
+	result, err := runner.Exec(query)
 	if err != nil {
-		if hasTracingImpl {
-			traceImpl.SpanError(ctx, err)
-		}
 		return result, log.EventErrKv("dbr.exec.exec", err, kvs{
 			"sql": query,
 		})
@@ -150,19 +108,11 @@ func exec(ctx context.Context, runner runner, log EventReceiver, builder Builder
 	return result, nil
 }
 
-func queryRows(ctx context.Context, runner runner, log EventReceiver, builder Builder, d Dialect) (string, *sql.Rows, error) {
-	// discard the timeout set in the runner, the context should not be canceled
-	// implicitly here but explicitly by the caller since the returned *sql.Rows
-	// may still listening to the context
-	i := interpolator{
-		Buffer:       NewBuffer(),
-		Dialect:      d,
-		IgnoreBinary: true,
-	}
-	err := i.encodePlaceholder(builder, true)
-	query, value := i.String(), i.Value()
+func query(runner runner, log EventReceiver, builder builder, d Dialect, v interface{}) (int, error) {
+	query, value := builder.ToSql()
+	query, err := InterpolateForDialect(query, value, d)
 	if err != nil {
-		return query, nil, log.EventErrKv("dbr.select.interpolate", err, kvs{
+		return 0, log.EventErrKv("dbr.select.interpolate", err, kvs{
 			"sql":  query,
 			"args": fmt.Sprint(value),
 		})
@@ -175,38 +125,13 @@ func queryRows(ctx context.Context, runner runner, log EventReceiver, builder Bu
 		})
 	}()
 
-	traceImpl, hasTracingImpl := log.(TracingEventReceiver)
-	if hasTracingImpl {
-		ctx = traceImpl.SpanStart(ctx, "dbr.select", query)
-		defer traceImpl.SpanFinish(ctx)
-	}
-
-	rows, err := runner.QueryContext(ctx, query, value...)
+	rows, err := runner.Query(query)
 	if err != nil {
-		if hasTracingImpl {
-			traceImpl.SpanError(ctx, err)
-		}
-		return query, nil, log.EventErrKv("dbr.select.load.query", err, kvs{
+		return 0, log.EventErrKv("dbr.select.load.query", err, kvs{
 			"sql": query,
 		})
 	}
-
-	return query, rows, nil
-}
-
-func query(ctx context.Context, runner runner, log EventReceiver, builder Builder, d Dialect, dest interface{}) (int, error) {
-	timeout := runner.GetTimeout()
-	if timeout > 0 {
-		var cancel func()
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-
-	query, rows, err := queryRows(ctx, runner, log, builder, d)
-	if err != nil {
-		return 0, err
-	}
-	count, err := Load(rows, dest)
+	count, err := Load(rows, v)
 	if err != nil {
 		return 0, log.EventErrKv("dbr.select.load.scan", err, kvs{
 			"sql": query,

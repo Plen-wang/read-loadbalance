@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/gocraft/dbr"
 	"github.com/read-loadbalance/lb"
 	"log"
 )
@@ -24,12 +25,14 @@ func main() {
 	slave1 := creator()
 	slave2 := creator()
 
-	//jumpB数仓拉取的开始时间
-	//jumpE数仓拉取的结束时间
-	//BigDaPullInd哪一个从库是用来拉取的
+	//构造slave-lb
 	slaveLB = lb.BuildSlaveLoadBalancer(1, 2, 1, slave1, slave2)
 
 	//获取数据源
-	slaveLB.GetPollingNode()
+	_, _, conn := slaveLB.GetPollingNode()
+
+	//放入任意orm中，这里举例dbr
+	orm := &dbr.Connection{DB: conn}
+	orm.NewSession(nil).SelectBySql("select id from tb_orders limit 1")
 
 }

@@ -5,7 +5,6 @@ type union struct {
 	all     bool
 }
 
-// Union builds `... UNION ...`.
 func Union(builder ...Builder) interface {
 	Builder
 	As(string) Builder
@@ -15,7 +14,6 @@ func Union(builder ...Builder) interface {
 	}
 }
 
-// UnionAll builds `... UNION ALL ...`.
 func UnionAll(builder ...Builder) interface {
 	Builder
 	As(string) Builder
@@ -34,10 +32,8 @@ func (u *union) Build(d Dialect, buf Buffer) error {
 				buf.WriteString("ALL ")
 			}
 		}
-		err := b.Build(d, buf)
-		if err != nil {
-			return err
-		}
+		buf.WriteString(d.Placeholder())
+		buf.WriteValue(b)
 	}
 	return nil
 }

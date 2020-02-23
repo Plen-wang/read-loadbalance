@@ -3,24 +3,24 @@
 	"ignore": "test",
 	"package": [
 		{
-			"path": "_",
-			"revision": ""
-		},
-		{
-			"checksumSHA1": "hBj538SvIAENhiERqULoIrUSEfA=",
-			"path": "github.com/go-sql-driver/mysql",
-			"revision": "3d8a0293423afe714a98d549f0a8015b2d0930b7",
-			"revisionTime": "2020-02-18T15:16:20Z"
-		},
-		{
-			"checksumSHA1": "3eOSzMowFIKe+ops2HItgJcMR1k=",
+			"checksumSHA1": "MLPAYvdzTACDpeo5iqtVYP7uPgs=",
 			"path": "github.com/gocraft/dbr",
-			"revision": "f487ccffc6d01750a28b483408b5f6e9c4743ece",
-			"revisionTime": "2020-02-18T04:55:17Z"
+			"revision": "178a9248c19fd9bcd50d763eaab48a62d281b0bc",
+			"revisionTime": "2015-09-18T23:28:12Z",
+			"version": "=v2.0",
+			"versionExact": "v2.0"
 		},
 		{
-			"path": "github.com/gocraft/dbr/v2/dialect",
-			"revision": "f487ccffc6d01750a28b483408b5f6e9c4743ece"
+			"checksumSHA1": "0ZizYEShmSk5z9i71K411MSl4tU=",
+			"path": "github.com/gocraft/dbr/dialect",
+			"revision": "178a9248c19fd9bcd50d763eaab48a62d281b0bc",
+			"revisionTime": "2015-09-18T23:28:12Z",
+			"version": "=v2.0",
+			"versionExact": "v2.0"
+		},
+		{
+			"path": "github.com/gocraft/dbr:v2.0",
+			"revision": ""
 		}
 	],
 	"rootPath": "github.com/read-loadbalance"

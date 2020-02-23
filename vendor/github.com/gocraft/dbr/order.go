@@ -1,22 +1,22 @@
 package dbr
 
-type direction bool
+type Direction bool
 
 // orderby directions
 // most databases by default use asc
 const (
-	asc  direction = false
-	desc           = true
+	ASC  Direction = false
+	DESC           = true
 )
 
-func order(column string, dir direction) Builder {
+func Order(column string, dir Direction) Builder {
 	return BuildFunc(func(d Dialect, buf Buffer) error {
 		// FIXME: no quote ident
 		buf.WriteString(column)
 		switch dir {
-		case asc:
+		case ASC:
 			buf.WriteString(" ASC")
-		case desc:
+		case DESC:
 			buf.WriteString(" DESC")
 		}
 		return nil

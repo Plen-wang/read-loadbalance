@@ -2,8 +2,7 @@ package dbr
 
 import "time"
 
-// Dialect abstracts database driver differences in encoding
-// types, and placeholders.
+// Dialect abstracts database differences
 type Dialect interface {
 	QuoteIdent(id string) string
 
@@ -12,5 +11,5 @@ type Dialect interface {
 	EncodeTime(t time.Time) string
 	EncodeBytes(b []byte) string
 
-	Placeholder(n int) string
+	Placeholder() string
 }

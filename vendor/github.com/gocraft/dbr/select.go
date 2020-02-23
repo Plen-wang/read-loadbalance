@@ -1,17 +1,9 @@
 package dbr
 
-import (
-	"context"
-	"database/sql"
-	"strconv"
-)
+import "fmt"
 
-// SelectStmt builds `SELECT ...`.
+// SelectStmt builds `SELECT ...`
 type SelectStmt struct {
-	runner
-	EventReceiver
-	Dialect
-
 	raw
 
 	IsDistinct bool
@@ -20,20 +12,16 @@ type SelectStmt struct {
 	Table     interface{}
 	JoinTable []Builder
 
-	WhereCond  []Builder
+	WhereCond  []Condition
 	Group      []Builder
-	HavingCond []Builder
+	HavingCond []Condition
 	Order      []Builder
-	Suffixes   []Builder
 
 	LimitCount  int64
 	OffsetCount int64
-
-	comments Comments
 }
 
-type SelectBuilder = SelectStmt
-
+// Build builds `SELECT ...` in dialect
 func (b *SelectStmt) Build(d Dialect, buf Buffer) error {
 	if b.raw.Query != "" {
 		return b.raw.Build(d, buf)
@@ -41,11 +29,6 @@ func (b *SelectStmt) Build(d Dialect, buf Buffer) error {
 
 	if len(b.Column) == 0 {
 		return ErrColumnNotSpecified
-	}
-
-	err := b.comments.Build(d, buf)
-	if err != nil {
-		return err
 	}
 
 	buf.WriteString("SELECT ")
@@ -63,7 +46,7 @@ func (b *SelectStmt) Build(d Dialect, buf Buffer) error {
 			// FIXME: no quote ident
 			buf.WriteString(col)
 		default:
-			buf.WriteString(placeholder)
+			buf.WriteString(d.Placeholder())
 			buf.WriteValue(col)
 		}
 	}
@@ -75,7 +58,7 @@ func (b *SelectStmt) Build(d Dialect, buf Buffer) error {
 			// FIXME: no quote ident
 			buf.WriteString(table)
 		default:
-			buf.WriteString(placeholder)
+			buf.WriteString(d.Placeholder())
 			buf.WriteValue(table)
 		}
 		if len(b.JoinTable) > 0 {
@@ -132,28 +115,17 @@ func (b *SelectStmt) Build(d Dialect, buf Buffer) error {
 
 	if b.LimitCount >= 0 {
 		buf.WriteString(" LIMIT ")
-		buf.WriteString(strconv.FormatInt(b.LimitCount, 10))
+		buf.WriteString(fmt.Sprint(b.LimitCount))
 	}
 
 	if b.OffsetCount >= 0 {
 		buf.WriteString(" OFFSET ")
-		buf.WriteString(strconv.FormatInt(b.OffsetCount, 10))
+		buf.WriteString(fmt.Sprint(b.OffsetCount))
 	}
-
-	if len(b.Suffixes) > 0 {
-		for _, suffix := range b.Suffixes {
-			buf.WriteString(" ")
-			err := suffix.Build(d, buf)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
-// Select creates a SelectStmt.
+// Select creates a SelectStmt
 func Select(column ...interface{}) *SelectStmt {
 	return &SelectStmt{
 		Column:      column,
@@ -162,33 +134,13 @@ func Select(column ...interface{}) *SelectStmt {
 	}
 }
 
-func prepareSelect(a []string) []interface{} {
-	b := make([]interface{}, len(a))
-	for i := range a {
-		b[i] = a[i]
-	}
+// From specifies table
+func (b *SelectStmt) From(table interface{}) *SelectStmt {
+	b.Table = table
 	return b
 }
 
-// Select creates a SelectStmt.
-func (sess *Session) Select(column ...string) *SelectStmt {
-	b := Select(prepareSelect(column)...)
-	b.runner = sess
-	b.EventReceiver = sess.EventReceiver
-	b.Dialect = sess.Dialect
-	return b
-}
-
-// Select creates a SelectStmt.
-func (tx *Tx) Select(column ...string) *SelectStmt {
-	b := Select(prepareSelect(column)...)
-	b.runner = tx
-	b.EventReceiver = tx.EventReceiver
-	b.Dialect = tx.Dialect
-	return b
-}
-
-// SelectBySql creates a SelectStmt from raw query.
+// SelectBySql creates a SelectStmt from raw query
 func SelectBySql(query string, value ...interface{}) *SelectStmt {
 	return &SelectStmt{
 		raw: raw{
@@ -200,61 +152,35 @@ func SelectBySql(query string, value ...interface{}) *SelectStmt {
 	}
 }
 
-// SelectBySql creates a SelectStmt from raw query.
-func (sess *Session) SelectBySql(query string, value ...interface{}) *SelectStmt {
-	b := SelectBySql(query, value...)
-	b.runner = sess
-	b.EventReceiver = sess.EventReceiver
-	b.Dialect = sess.Dialect
-	return b
-}
-
-// SelectBySql creates a SelectStmt from raw query.
-func (tx *Tx) SelectBySql(query string, value ...interface{}) *SelectStmt {
-	b := SelectBySql(query, value...)
-	b.runner = tx
-	b.EventReceiver = tx.EventReceiver
-	b.Dialect = tx.Dialect
-	return b
-}
-
-// From specifies table to select from.
-// table can be Builder like SelectStmt, or string.
-func (b *SelectStmt) From(table interface{}) *SelectStmt {
-	b.Table = table
-	return b
-}
-
+// Distinct adds `DISTINCT`
 func (b *SelectStmt) Distinct() *SelectStmt {
 	b.IsDistinct = true
 	return b
 }
 
-// Where adds a where condition.
-// query can be Builder or string. value is used only if query type is string.
+// Where adds a where condition
 func (b *SelectStmt) Where(query interface{}, value ...interface{}) *SelectStmt {
 	switch query := query.(type) {
 	case string:
 		b.WhereCond = append(b.WhereCond, Expr(query, value...))
-	case Builder:
+	case Condition:
 		b.WhereCond = append(b.WhereCond, query)
 	}
 	return b
 }
 
-// Having adds a having condition.
-// query can be Builder or string. value is used only if query type is string.
+// Having adds a having condition
 func (b *SelectStmt) Having(query interface{}, value ...interface{}) *SelectStmt {
 	switch query := query.(type) {
 	case string:
 		b.HavingCond = append(b.HavingCond, Expr(query, value...))
-	case Builder:
+	case Condition:
 		b.HavingCond = append(b.HavingCond, query)
 	}
 	return b
 }
 
-// GroupBy specifies columns for grouping.
+// GroupBy specifies columns for grouping
 func (b *SelectStmt) GroupBy(col ...string) *SelectStmt {
 	for _, group := range col {
 		b.Group = append(b.Group, Expr(group))
@@ -262,129 +188,51 @@ func (b *SelectStmt) GroupBy(col ...string) *SelectStmt {
 	return b
 }
 
+// OrderBy specifies columns for ordering
 func (b *SelectStmt) OrderAsc(col string) *SelectStmt {
-	b.Order = append(b.Order, order(col, asc))
+	b.Order = append(b.Order, Order(col, ASC))
 	return b
 }
 
 func (b *SelectStmt) OrderDesc(col string) *SelectStmt {
-	b.Order = append(b.Order, order(col, desc))
+	b.Order = append(b.Order, Order(col, DESC))
 	return b
 }
 
-// OrderBy specifies columns for ordering.
-func (b *SelectStmt) OrderBy(col string) *SelectStmt {
-	b.Order = append(b.Order, Expr(col))
-	return b
-}
-
+// Limit adds limit
 func (b *SelectStmt) Limit(n uint64) *SelectStmt {
 	b.LimitCount = int64(n)
 	return b
 }
 
+// Offset adds offset
 func (b *SelectStmt) Offset(n uint64) *SelectStmt {
 	b.OffsetCount = int64(n)
 	return b
 }
 
-// Suffix adds an expression to the end of the query. This is useful to add dialect-specific clauses like FOR UPDATE
-func (b *SelectStmt) Suffix(suffix string, value ...interface{}) *SelectStmt {
-	b.Suffixes = append(b.Suffixes, Expr(suffix, value...))
-	return b
-}
-
-// Paginate fetches a page in a naive way for a small set of data.
-func (b *SelectStmt) Paginate(page, perPage uint64) *SelectStmt {
-	b.Limit(perPage)
-	b.Offset((page - 1) * perPage)
-	return b
-}
-
-// OrderDir is a helper for OrderAsc and OrderDesc.
-func (b *SelectStmt) OrderDir(col string, isAsc bool) *SelectStmt {
-	if isAsc {
-		b.OrderAsc(col)
-	} else {
-		b.OrderDesc(col)
-	}
-	return b
-}
-
-func (b *SelectStmt) Comment(comment string) *SelectStmt {
-	b.comments = b.comments.Append(comment)
-	return b
-}
-
-// Join add inner-join.
-// on can be Builder or string.
+// Join joins table on condition
 func (b *SelectStmt) Join(table, on interface{}) *SelectStmt {
-	b.JoinTable = append(b.JoinTable, join(inner, table, on))
+	b.JoinTable = append(b.JoinTable, Join(Inner, table, on))
 	return b
 }
 
-// LeftJoin add left-join.
-// on can be Builder or string.
 func (b *SelectStmt) LeftJoin(table, on interface{}) *SelectStmt {
-	b.JoinTable = append(b.JoinTable, join(left, table, on))
+	b.JoinTable = append(b.JoinTable, Join(Left, table, on))
 	return b
 }
 
-// RightJoin add right-join.
-// on can be Builder or string.
 func (b *SelectStmt) RightJoin(table, on interface{}) *SelectStmt {
-	b.JoinTable = append(b.JoinTable, join(right, table, on))
+	b.JoinTable = append(b.JoinTable, Join(Right, table, on))
 	return b
 }
 
-// FullJoin add full-join.
-// on can be Builder or string.
 func (b *SelectStmt) FullJoin(table, on interface{}) *SelectStmt {
-	b.JoinTable = append(b.JoinTable, join(full, table, on))
+	b.JoinTable = append(b.JoinTable, Join(Full, table, on))
 	return b
 }
 
-// As creates alias for select statement.
+// As creates alias for select statement
 func (b *SelectStmt) As(alias string) Builder {
 	return as(b, alias)
-}
-
-// Rows executes the query and returns the rows returned, or any error encountered.
-func (b *SelectStmt) Rows() (*sql.Rows, error) {
-	return b.RowsContext(context.Background())
-}
-
-func (b *SelectStmt) RowsContext(ctx context.Context) (*sql.Rows, error) {
-	_, rows, err := queryRows(ctx, b.runner, b.EventReceiver, b, b.Dialect)
-	return rows, err
-}
-
-func (b *SelectStmt) LoadOneContext(ctx context.Context, value interface{}) error {
-	count, err := query(ctx, b.runner, b.EventReceiver, b, b.Dialect, value)
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// LoadOne loads SQL result into go variable that is not a slice.
-// Unlike Load, it returns ErrNotFound if the SQL result row count is 0.
-//
-// See https://godoc.org/github.com/gocraft/dbr#Load.
-func (b *SelectStmt) LoadOne(value interface{}) error {
-	return b.LoadOneContext(context.Background(), value)
-}
-
-func (b *SelectStmt) LoadContext(ctx context.Context, value interface{}) (int, error) {
-	return query(ctx, b.runner, b.EventReceiver, b, b.Dialect, value)
-}
-
-// Load loads multi-row SQL result into a slice of go variables.
-//
-// See https://godoc.org/github.com/gocraft/dbr#Load.
-func (b *SelectStmt) Load(value interface{}) (int, error) {
-	return b.LoadContext(context.Background(), value)
 }
