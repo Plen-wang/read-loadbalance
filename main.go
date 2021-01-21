@@ -5,8 +5,8 @@ import (
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gocraft/dbr"
-	"github.com/read-loadbalance/lb"
 	"log"
+	"read-loadbalance/lb"
 )
 
 var slaveLB *lb.SlaveLoadBalancer
