@@ -1,4 +1,4 @@
-module read-loadbalance
+module github.com/Plen-wang/read-loadbalance
 
 go 1.12
 
