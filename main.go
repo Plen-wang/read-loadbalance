@@ -3,10 +3,10 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"github.com/Plen-wang/read-loadbalance/lb"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gocraft/dbr"
 	"log"
-	"read-loadbalance/lb"
 )
 
 var slaveLB *lb.SlaveLoadBalancer
